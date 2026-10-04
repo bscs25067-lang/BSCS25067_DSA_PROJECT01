@@ -12,8 +12,8 @@
 #include <string>
 #include <cstdint>
 #include <fstream>
-#include <unistd.h>
-#include <sys/socket.h>
+// #include <unistd.h>
+// #include <sys/socket.h>
 #include <cstdint>
 #include <cstdio>
 using namespace std;
@@ -45,31 +45,57 @@ class Stack
 public:
     // Implement these functions:
     Stack()
-    { // initialize the stack
+    {
+        top = nullptr;
+        count = 0; 
     }
     void push(const T& val)
     {
+        if (count == MAX_STACK_DEPTH) return;
 
-        // pushes the value on the stack if max limit is not reached yet.
+        Node* newNode = new Node();
+        newNode->data = val;
+        newNode->next = top;
+
+        top = newNode;
+        count++;
     }
     T pop()
     {
-        // pop the top value on the stack
+        if (isEmpty())
+            return runtime_error("Stack underflow");
+
+        Node* nextNode = top->next;
+        T data = top->data;
+
+        delete top;
+        top = nextNode;
+
+        count--;
+
+        return data;
     }
     T& peek()
     {
-        // returns the top value on the stack
+        if (isEmpty())
+            return runtime_error("Stack underflow");
+
+        return top->data;
     }
-    bool isEmpty()
-    {
-    }
-    int32_t depth()
-    {
-    }
+    bool isEmpty() { return count == 0; }
+    int32_t depth() { return count; }
     int32_t snapshot_into(T out[], int32_t maxLen)
     {
-        // copies every frame, top to bottom in the array given as a parameter
-        // this is what buildSnapshot() call, returns count written
+        Node* currentNode = top;
+        int32_t count = 0;
+
+        while (currentNode != nullptr && count < maxLen)
+        {
+            out[count++] = currentNode->data;
+            currentNode = currentNode->next;
+        }
+
+        return count;
     }
 };
 
