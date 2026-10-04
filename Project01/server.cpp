@@ -117,17 +117,31 @@ public:
     // Implement these functions
     Timeline()
     {
+        head = tail = nullptr;
+        stepCount = 0;
     }
     void record(Snapshot* s)
     {
-        // add record in the timeline
+        TimelineNode* newNode = new TimelineNode();
+        newNode->data = s;
+        newNode->next = nullptr;
+
+        if (head == nullptr)
+        {
+            newNode->prev = nullptr;
+            head = tail = newNode;
+        }
+        else
+        {
+            newNode->prev = tail;
+            tail->next = newNode;
+            tail = newNode;
+        }
+
+        stepCount++;
     }
-    TimelineNode* begin()
-    {
-    }
-    int32_t getStepCount()
-    {
-    }
+    TimelineNode* begin() { return head; }
+    int32_t getStepCount() { return stepCount; }
 };
 
 // Core structs
