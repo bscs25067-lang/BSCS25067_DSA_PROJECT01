@@ -8,4 +8,8 @@
 - **DONE:** Implemented Timeline as a doubly linked list
 - **TODO:** Line-reading helpers and validation pass
 
+### 4/10/2026 - Commit 3
+- **DONE:** Completed Stage 1 by writing readSourceLine, firstWord, secondWord and validateProgram
+- **TODO:** Stage 2: Pass 0x1: Resolve
+
 ---

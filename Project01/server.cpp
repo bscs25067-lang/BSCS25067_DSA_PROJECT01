@@ -196,19 +196,86 @@ struct PendingPatch
 // PASS 0x0: READING source.bin + VALIDITY CHECK
 bool readSourceLine(ifstream& in, string& out)
 {
-    // reads the next nonblank line
+    while (getline(in, out))
+    {
+        if (!out.empty() && out.back() == '\r')
+            out.pop_back();
+
+        bool isBlank = true;
+        for (char c : out)
+        {
+            if (!isspace(c))
+            {
+                isBlank = false;
+                break;
+            }
+        }
+
+        if (!isBlank) return true;
+    }
+
+    return false;
 }
 string firstWord(const string& line)
 {
-    // returns first word from the input string
+    size_t start = 0;
+    while (start < line.length() && isspace(line[start]))
+        start++;
+
+    size_t end = start;
+    while (end < line.length() && !isspace(line[end]))
+        end++;
+
+    size_t wordLen = end - start;
+    return line.substr(start, wordLen);
 }
 string secondWord(const string& line)
 {
-    // returns the second word
+    size_t i = 0;
+
+    while (i < line.length() && isspace(line[i]))
+        i++;
+
+    while (i < line.length() && !isspace(line[i]))
+        i++;
+
+    while (i < line.length() && isspace(line[i]))
+        i++;
+
+    size_t start = i;
+    while (i < line.length() && !isspace(line[i]))
+        i++;
+
+    size_t wordLen = i - start;
+    return line.substr(start, wordLen);
 }
 bool validateProgram(const char* sourcePath)
 {
-    // for each func defined there should be exactly one func_end and no nested funcs allowed - 
+    ifstream file(sourcePath);
+    if (!file.is_open()) return false;
+
+    string line;
+    bool isInsideFunc = false;
+    
+    while (readSourceLine(file, line))
+    {
+        string w = firstWord(line);
+
+        if (w == "func")
+        {
+            if (isInsideFunc) return false;
+
+            isInsideFunc = true;
+        }
+        else if (w == "func_end")
+        {
+            if (!isInsideFunc) return false;
+
+            isInsideFunc = false;
+        }
+    }
+
+    return isInsideFunc;
 }
 
 // PASS 0x1: RESOLVE() -> resolve.bin
