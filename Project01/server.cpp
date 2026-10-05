@@ -63,7 +63,7 @@ public:
     T pop()
     {
         if (isEmpty())
-            return runtime_error("Stack underflow");
+            throw runtime_error("Stack underflow");
 
         Node* nextNode = top->next;
         T data = top->data;
@@ -78,7 +78,7 @@ public:
     T& peek()
     {
         if (isEmpty())
-            return runtime_error("Stack underflow");
+            throw runtime_error("Stack underflow");
 
         return top->data;
     }
@@ -301,12 +301,29 @@ bool validateProgram(const char* sourcePath)
 // PASS 0x1: RESOLVE() -> resolve.bin
 int64_t writeResolveRecord(FILE* f, int64_t offsetField, const string& text)
 {
-    // writes one [offset(8B)][size(4B)][string] record at the current file position
-    // returns this record's own starting byte position
+    int64_t startPos = ftell(f);
+
+    fwrite(&offsetField, sizeof(int64_t), 1, f);
+    
+    int32_t size = text.length();
+    fwrite(&size, sizeof(int32_t), 1, f);
+
+    fwrite(text.c_str(), 1, size, f);
+
+    return startPos;
 }
 int64_t readResolveRecord(FILE* f, string& outText)
 {
-    // reads one record at the current position and advances past it, returns the offset field - the raw line text comes back untouched in outText.
+    int64_t offsetField;
+    fread(&offsetField, sizeof(int64_t), 1, f);
+
+    int32_t size;
+    fread(&size, sizeof(int32_t), 1, f);
+
+    outText.resize(size);
+    fread(&outText[0], 1, size, f);
+
+    return offsetField;
 }
 int64_t resolveProgram(const char* sourcePath, const char* resolveBinPath)
 {
@@ -321,7 +338,7 @@ int64_t resolveProgram(const char* sourcePath, const char* resolveBinPath)
     // Once the whole file is written, every CALL's offset field is patched
     // with its target's position. Patching happens after the full write
     // Returns the byte offset of main's FUNC header record.
-    // if there is no main return the error 
+    // if there is no main return the error
 }
 
 // PASS 0x2: EXECUTION (tokenization happens here)
