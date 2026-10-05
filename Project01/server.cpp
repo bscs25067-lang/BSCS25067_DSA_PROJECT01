@@ -252,30 +252,50 @@ string secondWord(const string& line)
 bool validateProgram(const char* sourcePath)
 {
     ifstream file(sourcePath);
-    if (!file.is_open()) return false;
+    if (!file.is_open())
+    {
+        cerr << "[ERROR]: Could not open file \"" << sourcePath << "\".";
+        return false;
+    }
 
     string line;
-    bool isInsideFunc = false;
+    Stack<string> scopeStack;
+    int32_t lineNumber = 0;
     
     while (readSourceLine(file, line))
     {
+        lineNumber++;
         string w = firstWord(line);
 
         if (w == "func")
         {
-            if (isInsideFunc) return false;
+            if (!scopeStack.isEmpty())
+            {
+                cerr << "[ERROR]: Validation Error at line " << lineNumber << ": Nested 'func' declarations are not allowed.\n";
+                return false;
+            }
 
-            isInsideFunc = true;
+            scopeStack.push(secondWord(line));
         }
         else if (w == "func_end")
         {
-            if (!isInsideFunc) return false;
+            if (scopeStack.isEmpty())
+            {
+                cerr << "[ERROR]: Validation Error at line " << lineNumber << ": Found 'func_end' without a matching 'func'.\n";
+                return false;
+            }
 
-            isInsideFunc = false;
+            scopeStack.pop();
         }
     }
 
-    return isInsideFunc;
+    if (!scopeStack.isEmpty())
+    {
+        cerr << "[ERROR]: Validation Error Missing'func_end'. Reached the end of file while still inside a function.\n";
+        return false;
+    }
+
+    return true;
 }
 
 // PASS 0x1: RESOLVE() -> resolve.bin
