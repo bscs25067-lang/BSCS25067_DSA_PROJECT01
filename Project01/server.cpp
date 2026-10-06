@@ -331,14 +331,89 @@ int64_t resolveProgram(const char* sourcePath, const char* resolveBinPath)
     int32_t funcCount = 0;
     PendingPatch patches[MAX_PATCHES];
     int32_t patchCount = 0;
-    // Every source line becomes one record holding the raw line, as-is.
-    // resolve() only PEEKS at the leading word(s) -- enough to spot FUNC
-    // (remember its position) and CALL (remember which function it needs
-    // and where its offset field sits).
-    // Once the whole file is written, every CALL's offset field is patched
-    // with its target's position. Patching happens after the full write
-    // Returns the byte offset of main's FUNC header record.
-    // if there is no main return the error
+
+    ifstream inFile(sourcePath);
+    FILE* f = fopen(resolveBinPath, "wb+");
+    if (!inFile || !f)
+    {
+        cerr << "[ERROR]: Could not open file for resolving.\n";
+        if (f) fclose(f);
+        return -1;
+    }
+
+    // Copy all lines & Store Functions
+    string line;
+    while (readSourceLine(inFile, line))
+    {
+        string fw = firstWord(line);
+        int64_t pos = writeResolveRecord(f, 0, line);
+
+        if (fw == "func")
+        {
+            if (funcCount >= MAX_FUNCS)
+            {
+                cerr << "[ERROR]: Too many functions.\n";
+                fclose(f);
+                return -1;
+            }
+
+            funcArray[funcCount].funcName = secondWord(line);
+            funcArray[funcCount].byteOffsetInResolveBin = pos;
+            funcCount++;
+        }
+        else if (fw == "call")
+        {
+            if (patchCount >= MAX_PATCHES)
+            {
+                cerr << "[ERROR]: Too many calls\n"; fclose(f);
+                return -1;
+            }
+
+            patches[patchCount].byteOffsetOfOffsetField = pos;
+            patches[patchCount].targetFuncName = secondWord(line);
+            patchCount++;
+        }
+    }
+
+    // Get Main
+    int64_t mainFuncOffset = -1;
+    for (int i = 0; i < funcCount; i++)
+    {
+        if (funcArray[i].funcName == "main")
+            mainFuncOffset = funcArray[i].byteOffsetInResolveBin;
+    }
+
+    if (mainFuncOffset == -1)
+    {
+        cerr << "[ERROR]: No main function.\n";
+        fclose(f);
+
+        return -1;
+    }
+    
+    // Patch Calls
+    for (int i = 0; i < patchCount; i++)
+    {
+        int64_t target = -1;
+        for (int j = 0; j < funcCount; j++)
+        {
+            if (funcArray[j].funcName == patches[i].targetFuncName)
+                target = funcArray[j].byteOffsetInResolveBin;
+        }
+
+        if (target == -1)
+        {
+            cerr << "[Error]: Call to undefined function " << patches[i].targetFuncName << ".\n";
+            fclose(f);
+            return -1;
+        }
+
+        fseek(f, patches[i].byteOffsetOfOffsetField, SEEK_SET);
+        fwrite(&target, sizeof(int64_t), 1, f);
+    }
+
+    fclose(f);
+    return mainFuncOffset;
 }
 
 // PASS 0x2: EXECUTION (tokenization happens here)

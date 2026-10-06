@@ -14,12 +14,16 @@
 
 ---
 
-### 4/10/2026 - Commit 4
+### 5/10/2026 - Commit 4
 - **DONE:** Fixed ValidateProgram and used appropriate data strcuture
 - **TODO:** Stage 2: Pass 0x1: Resolve
 
-### 4/10/2026 - Commit 5
+### 5/10/2026 - Commit 5
 - **DONE:** Added writeResolveRecord & readResolveRecord and fixed return error bug in stack
 - **TODO:** Write resolveProgram function
 
 ---
+
+### 6/10/2026 - Commit 6
+- **DONE:** Completed Stage 2, ALso fixed previous days wrong dates on progress
+- **TODO:** Execution Phase
