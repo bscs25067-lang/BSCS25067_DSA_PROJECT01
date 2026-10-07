@@ -1,3 +1,4 @@
+#define _CRT_SECURE_NO_WARNINGS
 // ======================= TIME-TRAVEL DEBUGGER - SERVER TEMPLATE =======================
 
 // Pipeline this file implements, top to bottom:
@@ -472,6 +473,157 @@ void executeProgram(const char* resolveBinPath, int64_t mainOffset, Timeline& ti
 
     // implementation:
     // execute line by line, and according to the keyword perform action
+    FILE* f = fopen(resolveBinPath, "rb");
+    if (!f)
+    {
+        cerr << "[ERROR]: Could not open " << resolveBinPath << ".\n";
+        return;
+    }
+
+    fseek(f, 0, SEEK_END);
+    int64_t fileSize = ftell(f);
+
+    Stack<Frame> callStack;
+    Token tokens[MAX_TOKENS];
+    string line;
+
+    // Consume main func
+    fseek(f, mainOffset, SEEK_SET);
+    readResolveRecord(f, line);
+
+    Frame mainFrame;
+    mainFrame.func_name = "main";
+    mainFrame.argc = 0;
+    mainFrame.returnLine = 0;
+    mainFrame.localCount = 0;
+    callStack.push(mainFrame);
+    timeline.record(buildSnapshot(callStack));
+
+    while (!callStack.isEmpty())
+    {
+        int64_t pos = ftell(f);
+        if (pos >= fileSize)
+        {
+            cerr << "[ERROR]: Reached end of program without finishing main.\n";
+            break;
+        }
+
+        int64_t target = readResolveRecord(f, line);
+        int32_t n = tokenizeLine(line, tokens, MAX_TOKENS);
+        if (n == 0) continue;
+
+        string kw = tokens[0].text;
+        bool isArith = (kw == "add" || kw == "sub" || kw == "mul" || kw == "div");
+        Frame& cur = callStack.peek();
+
+        // Handle Operands
+        int32_t vals[MAX_VARS_PER_FRAME];
+        int32_t valCount = 0;
+        if (kw == "set" || isArith || kw == "call")
+        {
+            for (int32_t i = 2; i < n; i++)
+            {
+                const string& t = tokens[i].text;
+
+                bool isNum = true;
+                size_t start = (t.size() > 1 && t[0] == '-') ? 1 : 0;
+                for (size_t k = start; k < t.size(); k++)
+                    if (!isdigit((unsigned char)t[k])) isNum = false;
+
+                if (isNum)
+                {
+                    vals[valCount++] = stoi(t);
+                }
+                else
+                {
+                    bool found = false;
+                    for (int32_t j = 0; j < cur.argc && !found; j++)
+                    {
+                        if (cur.argv[j].name == t)
+                        {
+                            vals[valCount++] = cur.argv[j].value;
+                            found = true;
+                        }
+                    }
+
+                    for (int32_t j = 0; j < cur.localCount && !found; j++)
+                    {
+                        if (cur.locals[j].name == t)
+                        {
+                            vals[valCount++] = cur.locals[j].value;
+                            found = true;
+                        }
+                    }
+
+                    if (!found)
+                    {
+                        cerr << "[ERROR]: Unknown variable '" << t << "' in: " << line << "\n";
+                        fclose(f);
+                        return;
+                    }
+                }
+            }
+        }
+
+        // Variables
+        Variable* dst = nullptr;
+        if (kw == "set" || isArith)
+        {
+            for (int32_t j = 0; j < cur.argc && !dst; j++)
+                if (cur.argv[j].name == tokens[1].text) dst = &cur.argv[j];
+
+            for (int32_t j = 0; j < cur.localCount && !dst; j++)
+                if (cur.locals[j].name == tokens[1].text) dst = &cur.locals[j];
+        }
+
+        // Dispatching
+        if (kw == "set")
+        {
+            if (valCount != 1)
+            {
+                cerr << "[ERROR]: 'set' needs exactly one value: " << line << "\n";
+                fclose(f);
+                return;
+            }
+
+            if (dst)
+            {
+                dst->value = vals[0];
+            }
+            else
+            {
+                if (cur.localCount >= MAX_VARS_PER_FRAME)
+                {
+                    cerr << "[ERROR]: Too many variables in " << cur.func_name << ".\n";
+                    fclose(f);
+                    return;
+                }
+
+                cur.locals[cur.localCount].name = tokens[1].text;
+                cur.locals[cur.localCount].value = vals[0];
+                cur.localCount++;
+            }
+        }
+        else if (kw == "func_end")
+        {
+            if (callStack.depth() == 1)
+            {
+                timeline.record(buildSnapshot(callStack));
+                callStack.pop();
+                break;
+            }
+        }
+        else
+        {
+            cerr << "[ERROR]: Unknown or unsupported instruction: " << line << "\n";
+            fclose(f);
+            return;
+        }
+
+        timeline.record(buildSnapshot(callStack));
+    }
+
+    fclose(f);
 }
 
 // PASS 0x3: SERIALIZE TIMELINE
@@ -494,9 +646,26 @@ int32_t main()
     }
 
     int64_t mainOffset = resolveProgram("source.bin", "resolve.bin");
+    if (mainOffset == -1) return 1;
 
     Timeline timeline;
     executeProgram("resolve.bin", mainOffset, timeline);
+
+    int step = 1;
+    for (TimelineNode* nd = timeline.begin(); nd != nullptr; nd = nd->next, step++)
+    {
+        Snapshot* s = nd->data;
+        cout << "Step " << step << ":\n";
+        for (int32_t i = 0; i < s->stackDepth; i++)
+        {
+            Frame& fr = s->callStack[i];
+            cout << "  " << fr.func_name << " args:";
+            for (int32_t j = 0; j < fr.argc; j++) cout << " " << fr.argv[j].name << "=" << fr.argv[j].value;
+            cout << " | locals:";
+            for (int32_t j = 0; j < fr.localCount; j++) cout << " " << fr.locals[j].name << "=" << fr.locals[j].value;
+            cout << "\n";
+        }
+    }
 
     writeTdbg(timeline, "session.tdbg");
 

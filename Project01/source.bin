@@ -1,0 +1,4 @@
+func main
+set x 5
+set y 7
+func_end

@@ -34,4 +34,8 @@
 - **DONE:** Added buildSnapshot and tokenizeLine
 - **TODO:** Code executeProgram
 
+### 7/10/2026 - Commit 8
+- **DONE:** Working on executeProgram and added some code for testing |
+- **TODO:** Arithmetic Operations
+
 ---
