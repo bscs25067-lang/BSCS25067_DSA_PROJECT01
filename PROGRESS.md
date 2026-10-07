@@ -27,3 +27,11 @@
 ### 6/10/2026 - Commit 6
 - **DONE:** Completed Stage 2, ALso fixed previous days wrong dates on progress
 - **TODO:** Execution Phase
+
+---
+
+### 7/10/2026 - Commit 7
+- **DONE:** Added buildSnapshot and tokenizeLine
+- **TODO:** Code executeProgram
+
+---
