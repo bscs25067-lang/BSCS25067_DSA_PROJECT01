@@ -604,6 +604,69 @@ void executeProgram(const char* resolveBinPath, int64_t mainOffset, Timeline& ti
                 cur.localCount++;
             }
         }
+        else if (isArith)
+        {
+            if (!dst || valCount != 1)
+            {
+                cerr << "[ERROR]: Bad '" << kw << "' instruction: " << line << "\n";
+                fclose(f);
+                return;
+            }
+
+            if (kw == "add") dst->value += vals[0];
+            else if (kw == "sub") dst->value -= vals[0];
+            else if (kw == "mul") dst->value *= vals[0];
+            else
+            {
+                if (vals[0] == 0)
+                {
+                    cerr << "[ERROR]: Division by zero: " << line << "\n";
+                    fclose(f);
+                    return;
+                }
+
+                dst->value /= vals[0];
+            }
+        }
+        else if (kw == "call")
+        {
+            if (callStack.depth() >= MAX_STACK_DEPTH)
+            {
+                cerr << "[ERROR]: Stack overflow at: " << line << "\n";
+                fclose(f);
+                return;
+            }
+
+            fseek(f, (long)target, SEEK_SET);
+            string header;
+
+            readResolveRecord(f, header);
+
+            Token ht[MAX_TOKENS];
+            int32_t hn = tokenizeLine(header, ht, MAX_TOKENS);
+            int32_t paramCount = hn - 2;
+
+            if (paramCount != valCount)
+            {
+                cerr << "[ERROR]: Argument count mismatch in: " << line << "\n";
+                fclose(f);
+                return;
+            }
+
+            Frame fr;
+            fr.func_name = ht[1].text;
+            fr.argc = paramCount;
+            fr.localCount = 0;
+            fr.returnLine = (int32_t)pos;
+
+            for (int32_t i = 0; i < paramCount; i++)
+            {
+                fr.argv[i].name = ht[2 + i].text;
+                fr.argv[i].value = vals[i];
+            }
+
+            callStack.push(fr);
+        }
         else if (kw == "func_end")
         {
             if (callStack.depth() == 1)
@@ -612,12 +675,32 @@ void executeProgram(const char* resolveBinPath, int64_t mainOffset, Timeline& ti
                 callStack.pop();
                 break;
             }
-        }
-        else
-        {
-            cerr << "[ERROR]: Unknown or unsupported instruction: " << line << "\n";
-            fclose(f);
-            return;
+
+            Frame done = callStack.pop();
+
+            fseek(f, done.returnLine, SEEK_SET);
+            string callLine;
+            readResolveRecord(f, callLine);
+            Token ct[MAX_TOKENS];
+            tokenizeLine(callLine, ct, MAX_TOKENS);
+
+            Frame& caller = callStack.peek();
+            for (int32_t i = 0; i < done.argc; i++)
+            {
+                Variable* d = nullptr;
+                for (int32_t j = 0; j < caller.argc && !d; j++)
+                {
+                    if (caller.argv[j].name == ct[2 + i].text)
+                        d = &caller.argv[j];
+                }
+                for (int32_t j = 0; j < caller.localCount && !d; j++)
+                {
+                    if (caller.locals[j].name == ct[2 + i].text)
+                        d = &caller.locals[j];
+                }
+
+                if (d) d->value = done.argv[i].value;
+            }
         }
 
         timeline.record(buildSnapshot(callStack));

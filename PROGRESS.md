@@ -35,7 +35,13 @@
 - **TODO:** Code executeProgram
 
 ### 7/10/2026 - Commit 8
-- **DONE:** Working on executeProgram and added some code for testing |
+- **DONE:** Working on executeProgram and added some code for testing
 - **TODO:** Arithmetic Operations
+
+---
+
+### 8/10/2026 - Commit 9
+- **DONE:** Implemented Stage 3
+- **TODO:** Stage 4
 
 ---
