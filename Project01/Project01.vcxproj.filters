@@ -27,4 +27,9 @@
       <Filter>samples</Filter>
     </Text>
   </ItemGroup>
+  <ItemGroup>
+    <None Include="source.bin">
+      <Filter>samples</Filter>
+    </None>
+  </ItemGroup>
 </Project>
