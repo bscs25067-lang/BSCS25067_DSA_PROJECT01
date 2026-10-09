@@ -16,6 +16,7 @@
 // #include <unistd.h>
 // #include <sys/socket.h>
 #include <cstdint>
+#include <vector>
 #include <cstdio>
 using namespace std;
 
@@ -176,8 +177,8 @@ void writeHeader(FILE* f, const TTDBHeader& h)
 {
     fwrite(h.magic, 1, 4, f);
     fwrite(&h.version, sizeof(int32_t), 1, f);
-
-    // placeholder for other two data members
+    fwrite(&h.stepCount, sizeof(int32_t), 1, f);
+    fwrite(&h.indexOffset, sizeof(int64_t), 1, f);
 }
 
 // resolve.bin - bookkeeping
@@ -712,11 +713,70 @@ void executeProgram(const char* resolveBinPath, int64_t mainOffset, Timeline& ti
 // PASS 0x3: SERIALIZE TIMELINE
 void writeTdbg(Timeline& timeline, const char* tdbgPath)
 {
-    // placeholder for header
-    // index array of the size of stepcount from the timeline
-    // placing each snapshot in the file while maintaining the index(starting point of each nth snapshot)
-    // after timeline add the index array i the file
-    // update the header
+    FILE* f = fopen(tdbgPath, "wb");
+    if (!f)
+    {
+        cerr << "[ERROR]: Could not create " << tdbgPath << ".\n";
+        return;
+    }
+
+    TTDBHeader header;
+    header.magic[0] = 'T'; header.magic[1] = 'T'; header.magic[2] = 'D'; header.magic[3] = 'B';
+    header.version = 1;
+    header.stepCount = timeline.getStepCount();
+    header.indexOffset = 0;
+
+    writeHeader(f, header);
+
+    vector<int64_t> index;
+
+    for (TimelineNode* nd = timeline.begin(); nd != nullptr; nd = nd->next)
+    {
+        index.push_back((int64_t)ftell(f));
+
+        Snapshot* s = nd->data;
+        fwrite(&s->stackDepth, sizeof(int32_t), 1, f);
+
+        for (int32_t i = 0; i < s->stackDepth; i++)
+        {
+            Frame& fr = s->callStack[i];
+
+            int32_t len = (int32_t)fr.func_name.size();
+            fwrite(&len, sizeof(int32_t), 1, f);
+            fwrite(fr.func_name.c_str(), 1, len, f);
+
+            fwrite(&fr.argc, sizeof(int32_t), 1, f);
+            for (int32_t j = 0; j < fr.argc; j++)
+            {
+                len = (int32_t)fr.argv[j].name.size();
+                fwrite(&len, sizeof(int32_t), 1, f);
+
+                fwrite(fr.argv[j].name.c_str(), 1, len, f);
+                fwrite(&fr.argv[j].value, sizeof(int32_t), 1, f);
+            }
+
+            fwrite(&fr.returnLine, sizeof(int32_t), 1, f);
+
+            fwrite(&fr.localCount, sizeof(int32_t), 1, f);
+            for (int32_t j = 0; j < fr.localCount; j++)
+            {
+                len = (int32_t)fr.locals[j].name.size();
+                fwrite(&len, sizeof(int32_t), 1, f);
+
+                fwrite(fr.locals[j].name.c_str(), 1, len, f);
+                fwrite(&fr.locals[j].value, sizeof(int32_t), 1, f);
+            }
+        }
+    }
+
+    header.indexOffset = (int64_t)ftell(f);
+
+    if (!index.empty())
+        fwrite(index.data(), sizeof(int64_t), index.size(), f);
+
+    fseek(f, 0, SEEK_SET);
+    writeHeader(f, header);
+    fclose(f);
 }
 // main section
 int32_t main()
@@ -724,7 +784,6 @@ int32_t main()
 
     if (!validateProgram("source.bin"))
     {
-        // send an error response instead of a .tdbg file
         return 1;
     }
 
@@ -733,22 +792,6 @@ int32_t main()
 
     Timeline timeline;
     executeProgram("resolve.bin", mainOffset, timeline);
-
-    int step = 1;
-    for (TimelineNode* nd = timeline.begin(); nd != nullptr; nd = nd->next, step++)
-    {
-        Snapshot* s = nd->data;
-        cout << "Step " << step << ":\n";
-        for (int32_t i = 0; i < s->stackDepth; i++)
-        {
-            Frame& fr = s->callStack[i];
-            cout << "  " << fr.func_name << " args:";
-            for (int32_t j = 0; j < fr.argc; j++) cout << " " << fr.argv[j].name << "=" << fr.argv[j].value;
-            cout << " | locals:";
-            for (int32_t j = 0; j < fr.localCount; j++) cout << " " << fr.locals[j].name << "=" << fr.locals[j].value;
-            cout << "\n";
-        }
-    }
 
     writeTdbg(timeline, "session.tdbg");
 
