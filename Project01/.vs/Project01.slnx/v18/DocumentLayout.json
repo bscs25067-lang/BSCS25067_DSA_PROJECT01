@@ -3,12 +3,12 @@
   "WorkspaceRootPath": "C:\\Users\\Abdullah Saeed\\Documents\\ITU Work\\DSA\\PROJECT01\\Project01\\",
   "Documents": [
     {
-      "AbsoluteMoniker": "D:0:0:{129FB707-64A9-4D60-9C8E-035B3AD0F25C}|Project01.vcxproj|C:\\Users\\Abdullah Saeed\\Documents\\ITU Work\\DSA\\PROJECT01\\Project01\\demo.txt||{8B382828-6202-11D1-8870-0000F87579D2}",
-      "RelativeMoniker": "D:0:0:{129FB707-64A9-4D60-9C8E-035B3AD0F25C}|Project01.vcxproj|solutionrelative:demo.txt||{8B382828-6202-11D1-8870-0000F87579D2}"
-    },
-    {
       "AbsoluteMoniker": "D:0:0:{129FB707-64A9-4D60-9C8E-035B3AD0F25C}|Project01.vcxproj|C:\\Users\\Abdullah Saeed\\Documents\\ITU Work\\DSA\\PROJECT01\\Project01\\server.cpp||{D0E1A5C6-B359-4E41-9B60-3365922C2A22}",
       "RelativeMoniker": "D:0:0:{129FB707-64A9-4D60-9C8E-035B3AD0F25C}|Project01.vcxproj|solutionrelative:server.cpp||{D0E1A5C6-B359-4E41-9B60-3365922C2A22}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{129FB707-64A9-4D60-9C8E-035B3AD0F25C}|Project01.vcxproj|C:\\Users\\Abdullah Saeed\\Documents\\ITU Work\\DSA\\PROJECT01\\Project01\\demo.txt||{8B382828-6202-11D1-8870-0000F87579D2}",
+      "RelativeMoniker": "D:0:0:{129FB707-64A9-4D60-9C8E-035B3AD0F25C}|Project01.vcxproj|solutionrelative:demo.txt||{8B382828-6202-11D1-8870-0000F87579D2}"
     }
   ],
   "DocumentGroupContainers": [
@@ -18,11 +18,11 @@
       "DocumentGroups": [
         {
           "DockedWidth": 200,
-          "SelectedChildIndex": 0,
+          "SelectedChildIndex": 1,
           "Children": [
             {
               "$type": "Document",
-              "DocumentIndex": 0,
+              "DocumentIndex": 1,
               "Title": "demo.txt",
               "DocumentMoniker": "C:\\Users\\Abdullah Saeed\\Documents\\ITU Work\\DSA\\PROJECT01\\Project01\\demo.txt",
               "RelativeDocumentMoniker": "demo.txt",
@@ -30,18 +30,17 @@
               "RelativeToolTip": "demo.txt",
               "ViewState": "AgIAAAAAAAAAAAAAAAAAAAoAAAAIAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003109|",
-              "WhenOpened": "2026-10-07T19:05:56.276Z",
-              "EditorCaption": ""
+              "WhenOpened": "2026-10-07T19:05:56.276Z"
             },
             {
               "$type": "Document",
-              "DocumentIndex": 1,
+              "DocumentIndex": 0,
               "Title": "server.cpp",
               "DocumentMoniker": "C:\\Users\\Abdullah Saeed\\Documents\\ITU Work\\DSA\\PROJECT01\\Project01\\server.cpp",
               "RelativeDocumentMoniker": "server.cpp",
               "ToolTip": "C:\\Users\\Abdullah Saeed\\Documents\\ITU Work\\DSA\\PROJECT01\\Project01\\server.cpp",
               "RelativeToolTip": "server.cpp",
-              "ViewState": "AgIAAMACAAAAAAAAAAAgwL0CAAA1AAAAAAAAAA==",
+              "ViewState": "AgIAAO0CAAAAAAAAAAAiwP4CAABDAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000677|",
               "WhenOpened": "2026-10-07T14:26:05.765Z",
               "EditorCaption": ""
