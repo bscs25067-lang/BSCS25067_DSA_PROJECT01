@@ -23,7 +23,9 @@
 //   - it reads the string until the connection's write side is closed (recv returns 0)
 //   - it sends its reply as [status: 1 byte][payload], then closes the connection 
 
-
+#include <thread>
+#include <mutex>
+#include <chrono>
 #include <iostream>
 #include <string>
 #include <cstdlib>
@@ -114,48 +116,146 @@ sig_atomic_t flag = 1;
 
 
 // ---- Basic socket helpers ----
-bool sendAll(int sock, const char *buf, size_t n) 
+bool sendAll(int sock, const char* buf, size_t n)
 {
-    // Reply format: [status: 1 byte][sending_material][checksum: 4 bytes].
-    // send() may send fewer bytes than asked for, so keep calling it until all n bytes are sent.
-    
+    size_t totalSent = 0;
+    while (totalSent < n)
+    {
+        ssize_t s = send(sock, buf + totalSent, n - totalSent, MSG_NOSIGNAL);
+
+        if (s <= 0)
+            return false;
+
+        totalSent += (size_t)s;
+    }
+
+    return true;
 }
-bool sendError(int sock, const string &message)
+
+bool sendError(int sock, const string& message)
 {
-    // Reply format: [status: 1 byte][payload until close][checksum: 4 bytes].
-    // For an error: send one byte with value 1, then the message text. 
+    uint8_t status = STATUS_ERR;
+    uint32_t crc = crc32Init();
+
+    crc = crc32Update(crc, (const char*)&status, 1);
+    if (!message.empty())
+        crc = crc32Update(crc, message.data(), message.size());
+
+    uint32_t finalCrc = crc32Final(crc);
+
+    if (!sendAll(sock, (const char*)&status, 1))
+        return false;
+
+    if (!message.empty() && !sendAll(sock, message.data(), message.size()))
+        return false;
+
+    if (!sendAll(sock, (const char*)&finalCrc, sizeof(uint32_t)))
+        return false;
+
+    return true;
 }
+
 int createListenSocket(int port)
-{ 
-    // Create a TCP socket with SOCK_CLOEXEC(flag).
-    // set SO_REUSEADDR so we can restart the load balancer right away.
-    // bind() to the port on any address, then listen(LISTEN_BACKLOG).
-    // If bind or listen fails, print the error and exit, because without this socket we cannot work.
-}
-int connectToServer(const char *host, int port)
 {
-    // Create a TCP socket (SOCK_CLOEXEC) and connect it to host:port.
-    // Return the socket, or -1 if the connection fails 
+#ifdef _WIN32
+    WSADATA wsaData;
+    WSAStartup(MAKEWORD(2, 2), &wsaData);
+#endif
+
+    int sock = (int)socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
+    if (sock < 0)
+    {
+        cerr << "[LB ERROR]: Failed to create listen socket.\n";
+        exit(1);
+    }
+
+    int opt = 1;
+    setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, (const char*)&opt, sizeof(opt));
+
+    sockaddr_in addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    addr.sin_port = htons((uint16_t)port);
+
+    if (bind(sock, (struct sockaddr*)&addr, sizeof(addr)) < 0)
+    {
+        cerr << "[LB ERROR]: bind() failed on port " << port << ".\n";
+        CLOSE_SOCKET(sock);
+        exit(1);
+    }
+
+    if (listen(sock, LISTEN_BACKLOG) < 0)
+    {
+        cerr << "[LB ERROR]: listen() failed on port " << port << ".\n";
+        CLOSE_SOCKET(sock);
+        exit(1);
+    }
+
+    return sock;
+}
+
+int connectToServer(const char* host, int port)
+{
+    int sock = (int)socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
+    if (sock < 0)
+        return -1;
+
+    sockaddr_in addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons((uint16_t)port);
+
+    if (inet_pton(AF_INET, host, &addr.sin_addr) <= 0)
+    {
+        CLOSE_SOCKET(sock);
+        return -1;
+    }
+
+    if (connect(sock, (struct sockaddr*)&addr, sizeof(addr)) < 0)
+    {
+        CLOSE_SOCKET(sock);
+        return -1;
+    }
+
+    return sock;
 }
 
 // =============================================================================================
 // PART 1: WAKING UP THE SERVER IF IT IS DOWN
 // =============================================================================================
 
-
 bool startServer(int port)
 {
-    // Build the command text: SERVER_PATH + " " + port as text + "&"
-    //   Example: "./server 5001 &"
-    // Call system() with it.
-    // Return true if system() returned 0, otherwise false.
+#ifdef _WIN32
+    string cmd = string("start /B server.exe ") + to_string(port);
+#else
+    string cmd = string(SERVER_PATH) + " " + to_string(port) + " &";
+#endif
+
+    int ret = system(cmd.c_str());
+    return (ret == 0);
 }
+
 int connectToServerWithWakeup()
 {
-    // 1. Try connectToServer(). If it works, return that socket. The server is alive.
-    // 2. Otherwise call startServer(). If it fails, return -1.
-    // 3. Try connectToServer() up to STARTUP_MAX_ATTEMPTS times 
-    // 4. Return the first working socket, or -1 if the server never came up.
+    int sock = connectToServer(serverHost.c_str(), serverPort);
+    if (sock >= 0)
+        return sock;
+
+    if (!startServer(serverPort))
+        return -1;
+
+    for (int attempt = 0; attempt < STARTUP_MAX_ATTEMPTS; attempt++)
+    {
+        this_thread::sleep_for(chrono::milliseconds(STARTUP_POLL_INTERVAL_MS));
+
+        sock = connectToServer(serverHost.c_str(), serverPort);
+        if (sock >= 0)
+            return sock;
+    }
+
+    return -1;
 }
 
 
