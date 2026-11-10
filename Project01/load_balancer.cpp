@@ -45,7 +45,7 @@ string serverHost = "127.0.0.0";
 int serverPort = 5001;
 
 
-// ---- Queue: here it holds client sockets (int). ----
+// ---- Queue: here it holds client sockets (ClientInfo). ----
 // Implement it yourself, do not use std::queue.
 template <typename T>
 class Queue
@@ -53,38 +53,58 @@ class Queue
     struct Node
     {
         T data;
-        Node *next;
+        Node* next;
+
+        Node(T d) : data(d), next(nullptr) { }
+        Node(T d, Node* n) : data(d), next(n) { }
     };
-    Node *front, *rear;
+    Node* front, * rear;
     int count;
 
-
 public:
-    // Implement these functions:
-    Queue()
-    {
+    Queue(): front(nullptr), rear(nullptr), count(0) { }
 
-    }
     ~Queue()
     {
-
+        while (!isEmpty())
+        {
+            dequeue();
+        }
     }
-    void enqueue(const T &val)
+
+    void enqueue(const T& val)
     {
+        Node* newNode = new Node(val);
 
+        if (rear == nullptr) front = rear = newNode;
+        else
+        {
+            rear->next = newNode;
+            rear = newNode;
+        }
+
+        count++;
     }
+
     T dequeue()
     {
+        if (isEmpty()) throw runtime_error("Queue underflow");
 
-    }
-    bool isEmpty()
-    {
-        
-    }
-    int size()
-    {
+        Node* oldFront = front;
+        T val = oldFront->data;
 
+        front = front->next;
+        if (front == nullptr)
+            rear = nullptr;
+
+        delete oldFront;
+        count--;
+
+        return val;
     }
+
+    bool isEmpty() const { return count == 0 }
+    int size() const { return count; }
 };
 
 // The queue is used by two threads, so every use of it must be inside queueMutex.
