@@ -429,35 +429,140 @@ void printHelp()
         << " - quit         - Close session and exit\n";
 }
 
+
 // =============================================================================================
 // PART F: THE INFINITE LOOP
 // =============================================================================================
-
-bool runCommand(DebugSession &s, const string &line, bool &quitRequested)
+bool parsePositiveInt(const string& str, int32_t& outVal)
 {
-    // 1. Split the line into words.
-    // 2. If the first word is "ttdb", drop it.
-    // 3. Match the first word:
-    //      start      -> needs a path after it, then cmdStart
-    //      next       -> no more words, then cmdNext
-    //      prv        -> no more words, then cmdPrv
-    //      jmp        -> second word "next" or "prv", third word a positive number ,
-    //                    then cmdJmpNext or cmdJmpPrv
-    //      help       -> printHelp
-    //      quit, exit -> set quitRequested = true
-    // 4. For anything else, or a wrong number of words, print "unknown command" and the help text, and return false.
+    if (str.empty())
+        return false;
+
+    for (size_t i = 0; i < str.size(); i++)
+    {
+        if (!isdigit((unsigned char)str[i]))
+            return false;
+    }
+
+    try
+    {
+        long long val = stoll(str);
+        if (val <= 0 || val > MAX_JUMP)
+            return false;
+
+        outVal = (int32_t)val;
+        return true;
+    }
+    catch (...)
+    {
+        return false;
+    }
 }
-int main(int argc, char *argv[])
+
+bool runCommand(DebugSession& s, const string& line, bool& quitRequested)
 {
-    // you get string LB_HOST and int LB_PORT = 0 in arguments of this main function. 
+    vector<string> words;
+    size_t i = 0;
 
-    // DebugSession session; initSession(session);
-    // Print a short welcome and the help text.
-    //
-    // Infinite loop:
-    //   if quitRequested, break
-    //
-    // After the loop: closeSession(session) and return 0.
-    // Never exit the loop because of an error. Only quit or the end of the input leaves it.
+    while (i < line.size())
+    {
+        while (i < line.size() && isspace((unsigned char)line[i]))
+            i++;
 
+        if (i >= line.size())
+            break;
+
+        size_t start = i;
+        while (i < line.size() && !isspace((unsigned char)line[i]))
+            i++;
+
+        words.push_back(line.substr(start, i - start));
+    }
+
+    if (words.empty())
+        return true;
+
+    if (words[0] == PROGRAM_NAME)
+    {
+        words.erase(words.begin());
+
+        if (words.empty())
+            return true;
+    }
+
+
+    const string& cmd = words[0];
+
+    if (cmd == "start" && words.size() == 2)
+        return cmdStart(s, words[1]);
+
+    else if (cmd == "next" && words.size() == 1)
+        return cmdNext(s);
+
+    else if (cmd == "prv" && words.size() == 1)
+        return cmdPrv(s);
+
+    else if (cmd == "jmp" && words.size() == 3)
+    {
+        int32_t n = 0;
+        if (parsePositiveInt(words[2], n))
+        {
+            if (words[1] == "next")
+                return cmdJmpNext(s, n);
+
+            if (words[1] == "prv")
+                return cmdJmpPrv(s, n);
+        }
+    }
+    else if (cmd == "help" && words.size() == 1)
+    {
+        printHelp();
+        return true;
+    }
+    else if ((cmd == "quit" || cmd == "exit") && words.size() == 1)
+    {
+        quitRequested = true;
+        return true;
+    }
+
+    cout << "unknown command\n";
+    printHelp();
+
+    return false;
+}
+
+int main(int argc, char* argv[])
+{
+    if (argc >= 3)
+    {
+        LB_HOST = argv[1];
+        LB_PORT = atoi(argv[2]);
+    }
+
+    DebugSession session;
+    initSession(session);
+
+    cout << "=== Time-Travel Debugger Client (" << PROGRAM_NAME << ") ===\n";
+    cout << "Connected target LB: " << LB_HOST << ":" << LB_PORT << "\n";
+    printHelp();
+
+    bool quitRequested = false;
+    string line;
+
+    while (!quitRequested)
+    {
+        cout << PROMPT;
+        cout.flush();
+
+        if (!getline(cin, line))
+            break;
+
+        if (!line.empty() && line.back() == '\r')
+            line.pop_back();
+
+        runCommand(session, line, quitRequested);
+    }
+
+    closeSession(session);
+    return 0;
 }
