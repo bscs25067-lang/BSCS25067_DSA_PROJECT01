@@ -288,30 +288,88 @@ void closeSession(DebugSession &s)
 // PART D: THE COMMANDS
 // =============================================================================================
 
-void printSnapshot(int32_t step, int32_t totalSteps, const Snapshot &s); // defined in Part E
+void printSnapshot(int32_t step, int32_t totalSteps, const Snapshot& s); // defined in Part E
 
-bool showCurrent(DebugSession &s)
+bool showCurrent(DebugSession& s)
 {
-    // Read the snapshot at s.currentStep, call printSnapshot, delete the snapshot.
-    // If readSnapshotAt returns nullptr, print "damaged .tdbg file" and return false.
+    Snapshot* snap = readSnapshotAt(s.reader, (int32_t)s.currentStep);
+    if (!snap)
+    {
+        cout << "[ERROR] damaged .tdbg file.\n";
+        return false;
+    }
+
+    printSnapshot((int32_t)s.currentStep, s.reader.header.stepCount, *snap);
+    delete snap;
+    return true;
 }
-bool moveBy(DebugSession &s, int32_t delta)
+
+bool moveBy(DebugSession& s, int32_t delta)
 {
+    if (!s.active_flag)
+    {
+        cout << "No active debugging session. Run 'start <file>' first.\n";
+        return false;
+    }
+
+    int64_t targetStep = s.currentStep + (int64_t)delta;
+
+    if (targetStep < 0)
+    {
+        cout << "Cannot move backward: out of bounds (currently at step "
+            << (s.currentStep + 1) << " / " << s.reader.header.stepCount << ").\n";
+
+        return false;
+    }
+
+    if (targetStep >= s.reader.header.stepCount)
+    {
+        cout << "Cannot move forward: out of bounds (currently at step "
+            << (s.currentStep + 1) << " / " << s.reader.header.stepCount << ").\n";
+
+        return false;
+    }
+
+    s.currentStep = targetStep;
+    return showCurrent(s);
 }
-bool cmdStart(DebugSession &s, const string &sourcePath)
+
+bool cmdStart(DebugSession& s, const string& sourcePath)
 {
-    // 1. requestDebugFile with host and port, saving to TDBG_FILE.
-    // 2. If it fails, print the error text and return false. Keep the old session as it was.
-    // 3. Open the new file with openTdbg into a NEW local TdbgReader.
-    //    If that fails, print "server sent a damaged .tdbg file", keep the old session, return false.
-    // 4. Only now close the old reader (if s.active), then put the new reader into s,
-    //    set s.currentStep = 0 and s.active = true.
-    // 5. Show step 1 with showCurrent(s).
+    return false;
 }
-bool cmdNext(DebugSession &s) {}
-bool cmdPrv(DebugSession &s) {}
-bool cmdJmpNext(DebugSession &s, int32_t n) {}
-bool cmdJmpPrv(DebugSession &s, int32_t n) { }
+
+bool cmdNext(DebugSession& s)
+{
+    return moveBy(s, 1);
+}
+
+bool cmdPrv(DebugSession& s)
+{
+    return moveBy(s, -1);
+}
+
+bool cmdJmpNext(DebugSession& s, int32_t n)
+{
+    if (n <= 0 || n > MAX_JUMP)
+    {
+        cout << "[ERROR] Invalid jump distance. Must be between 1 and " << MAX_JUMP << ".\n";
+        return false;
+    }
+
+    return moveBy(s, n);
+}
+
+bool cmdJmpPrv(DebugSession& s, int32_t n)
+{
+    if (n <= 0 || n > MAX_JUMP)
+    {
+        cout << "[ERROR] Invalid jump distance. Must be between 1 and " << MAX_JUMP << ".\n";
+        return false;
+    }
+
+    return moveBy(s, -n);
+}
 
 // =============================================================================================
 // PART E: PRINTING
