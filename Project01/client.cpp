@@ -31,34 +31,6 @@ const int MAX_JUMP = 1000000000;          // biggest n accepted by jmp
 string LB_HOST = "127.0.0.0";
 int LB_PORT = 5000;
 
-// ---- Structs (same as Phase 1, so the file can be read back exactly as it was written) ----
-struct Variable
-{
-    string name;
-    int32_t value;
-};
-struct Frame
-{
-    string func_name;
-    int32_t argc;
-    Variable argv[MAX_VARS_PER_FRAME];
-    int32_t returnLine;
-    Variable locals[MAX_VARS_PER_FRAME];
-    int32_t localCount;
-};
-struct Snapshot
-{
-    Frame callStack[MAX_STACK_DEPTH];
-    int32_t stackDepth;
-};
-struct TTDBHeader 
-{
-    char magic[4]; // "TTDB"
-    int32_t version;
-    int32_t stepCount;
-    int64_t indexOffset;
-};
-
 // ---- Structs only the client needs ----
 struct TdbgReader
 {
@@ -77,36 +49,234 @@ struct DebugSession
 // =============================================================================================
 // PART A: TALKING TO THE LOAD BALANCER
 // =============================================================================================
+bool recvAll(int sock, char* buf, size_t n)
+{
+    size_t totalReceived = 0;
+    while (totalReceived < n)
+    {
+        ssize_t r = recv(sock, buf + totalReceived, n - totalReceived, 0);
+        if (r <= 0)
+            return false;
 
-bool recvAll(int sock, char *buf, size_t n)
-{
-    // recv() can return fewer bytes than asked for, so keep calling it until exactly n bytes are read.
-    // Return false if the connection closes or fails before n bytes arrive.
-}
-bool sendAll(int sock, const char *buf, size_t n)
-{
-    // send() can send fewer bytes than asked for, so keep calling it until all n bytes are sent.
-    // Use the flag MSG_NOSIGNAL. Return false if the connection fails.
+        totalReceived += (size_t)r;
+    }
+
+    return true;
 }
 
-int connectToHost(const char *host, int port)
+bool sendAll(int sock, const char* buf, size_t n)
 {
-    // Create a TCP socket and connect it to host:port.
-    // Return the socket, or -1 if the connection fails.
+    size_t totalSent = 0;
+    while (totalSent < n)
+    {
+        ssize_t s = send(sock, buf + totalSent, n - totalSent, MSG_NOSIGNAL);
+        if (s <= 0)
+            return false;
+
+        totalSent += (size_t)s;
+    }
+
+    return true;
 }
-bool uploadSource(int sock, const char *sourcePath)
+
+int connectToHost(const char* host, int port)
 {
-    // have to do checksum and then send
-    // When the file is finished, call shutdown(sock, SHUT_WR). This is how the server knows the string is complete.
-    // Return false if the file cannot be opened or any send fails.
+#ifdef _WIN32
+    WSADATA wsaData;
+    WSAStartup(MAKEWORD(2, 2), &wsaData);
+#endif
+
+    int sock = (int)socket(AF_INET, SOCK_STREAM, 0);
+    if (sock < 0)
+        return -1;
+
+    sockaddr_in addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons((uint16_t)port);
+
+    if (inet_pton(AF_INET, host, &addr.sin_addr) <= 0)
+    {
+        CLOSE_SOCKET(sock);
+        return -1;
+    }
+
+    if (connect(sock, (struct sockaddr*)&addr, sizeof(addr)) < 0)
+    {
+        CLOSE_SOCKET(sock);
+        return -1;
+    }
+
+    return sock;
 }
-bool receiveResponse(int sock, const char *outTdbgPath, string &outError)
+
+bool uploadSource(int sock, const char* sourcePath)
 {
-    // Reply on the wire: [status][payload][CRC-32]. The CRC covers the status byte too.
-    // Feed every received byte (status included) to a TrailerChecker.
-    // Status 1: collect the payload into outError. Status 0: write the payload to the file.
-    // At the end call verify(). If it fails, delete the file, set outError to
-    // "checksum mismatch, response corrupted" and return false.
+    FILE* f = fopen(sourcePath, "rb");
+    if (!f)
+    {
+        cout << "Could not open source file: " << sourcePath << "\n";
+        return false;
+    }
+
+    uint32_t crc = crc32Init();
+
+    char statusByte = (char)STATUS_OK;
+    crc = crc32Update(crc, &statusByte, 1);
+    if (!sendAll(sock, &statusByte, 1))
+    {
+        fclose(f);
+        return false;
+    }
+
+    vector<char> buf(IO_BUFFER_SIZE);
+    size_t bytesRead = 0;
+    while ((bytesRead = fread(buf.data(), 1, buf.size(), f)) > 0)
+    {
+        crc = crc32Update(crc, buf.data(), bytesRead);
+
+        if (!sendAll(sock, buf.data(), bytesRead))
+        {
+            fclose(f);
+            return false;
+        }
+    }
+
+    fclose(f);
+
+    uint32_t finalCrc = crc32Final(crc);
+    if (!sendAll(sock, (const char*)&finalCrc, sizeof(uint32_t)))
+        return false;
+
+    shutdown(sock, SHUT_WR);
+    return true;
+}
+
+bool receiveResponse(int sock, const char* outTdbgPath, string& outError)
+{
+    outError.clear();
+    TrailerChecker checker;
+    vector<char> buf(IO_BUFFER_SIZE);
+    string confirmedBytes;
+
+    bool statusRead = false;
+    uint8_t status = STATUS_OK;
+    FILE* outFile = nullptr;
+
+    while (true)
+    {
+        ssize_t r = recv(sock, buf.data(), buf.size(), 0);
+        if (r < 0)
+        {
+            if (outFile)
+            {
+                fclose(outFile);
+                remove(outTdbgPath);
+            }
+
+            outError = "Connection error while receiving response";
+            return false;
+        }
+        if (r == 0)
+            break;
+
+        checker.feed(buf.data(), (size_t)r, confirmedBytes);
+        if (confirmedBytes.empty())
+            continue;
+
+        size_t offset = 0;
+        if (!statusRead)
+        {
+            status = (uint8_t)confirmedBytes[0];
+            statusRead = true;
+            offset = 1;
+
+            if (status == STATUS_OK)
+            {
+                outFile = fopen(outTdbgPath, "wb");
+
+                if (!outFile)
+                {
+                    outError = "Could not create local .tdbg file";
+                    return false;
+                }
+            }
+        }
+
+        size_t remaining = confirmedBytes.size() - offset;
+        if (remaining > 0)
+        {
+            if (status == STATUS_OK) fwrite(confirmedBytes.data() + offset, 1, remaining, outFile);
+            else outError.append(confirmedBytes.data() + offset, remaining);
+        }
+    }
+
+    if (outFile)
+    {
+        fclose(outFile);
+        outFile = nullptr;
+    }
+
+    if (!statusRead || !checker.verify())
+    {
+        if (status == STATUS_OK)
+            remove(outTdbgPath);
+
+        outError = "response corrupted";
+
+        return false;
+    }
+
+    if (status != STATUS_OK)
+    {
+        if (outError.empty())
+            outError = "Unknown error from server";
+
+        return false;
+    }
+
+    return true;
+}
+
+bool requestDebugFile(const char* host, int port, const char* sourcePath, const char* outTdbgPath, string& outError)
+{
+    // Verify the local source file exists before opening a socket
+    FILE* testFile = fopen(sourcePath, "rb");
+    if (!testFile)
+    {
+        outError = string("Could not open file: ") + sourcePath;
+        return false;
+    }
+    fclose(testFile);
+
+    int sock = connectToHost(host, port);
+    if (sock < 0)
+    {
+        outError = "Could not connect to load balancer";
+        return false;
+    }
+
+    // Apply 30-second receive timeout so client doesn't hang forever
+#ifdef _WIN32
+    DWORD timeoutMs = 30000;
+    setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeoutMs, sizeof(timeoutMs));
+#else
+    struct timeval tv;
+    tv.tv_sec = 30;
+    tv.tv_usec = 0;
+    setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+#endif
+
+    if (!uploadSource(sock, sourcePath))
+    {
+        CLOSE_SOCKET(sock);
+        outError = "Failed to upload source file";
+        return false;
+    }
+
+    bool ok = receiveResponse(sock, outTdbgPath, outError);
+    CLOSE_SOCKET(sock);
+    return ok;
 }
 
 // =============================================================================================
@@ -288,7 +458,7 @@ void closeSession(DebugSession &s)
 // PART D: THE COMMANDS
 // =============================================================================================
 
-void printSnapshot(int32_t step, int32_t totalSteps, const Snapshot& s); // defined in Part E
+void printSnapshot(int32_t step, int32_t totalSteps, const Snapshot& s);
 
 bool showCurrent(DebugSession& s)
 {
@@ -336,7 +506,50 @@ bool moveBy(DebugSession& s, int32_t delta)
 
 bool cmdStart(DebugSession& s, const string& sourcePath)
 {
-    return false;
+    const char* tempPath = "ttdb_downloading.tdbg";
+    string errorMsg;
+
+    if (!requestDebugFile(LB_HOST.c_str(), LB_PORT, sourcePath.c_str(), tempPath, errorMsg))
+    {
+        cout << errorMsg << "\n";
+        return false;
+    }
+
+    TdbgReader tempReader;
+    tempReader.file = nullptr;
+    tempReader.file_index = -1;
+    if (!openTdbg(tempPath, tempReader))
+    {
+        remove(tempPath);
+        cout << "server sent a damaged .tdbg file\n";
+
+        return false;
+    }
+    closeTdbg(tempReader);
+
+    if (s.active_flag)
+    {
+        closeTdbg(s.reader);
+        s.active_flag = 0;
+    }
+
+    remove(TDBG_FILE);
+    rename(tempPath, TDBG_FILE);
+
+    TdbgReader newReader;
+    newReader.file = nullptr;
+    newReader.file_index = -1;
+    if (!openTdbg(TDBG_FILE, newReader))
+    {
+        cout << "server sent a damaged .tdbg file\n";
+        return false;
+    }
+
+    s.reader = newReader;
+    s.currentStep = 0;
+    s.active_flag = 1;
+
+    return showCurrent(s);
 }
 
 bool cmdNext(DebugSession& s)

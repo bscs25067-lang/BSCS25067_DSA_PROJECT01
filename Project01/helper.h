@@ -23,14 +23,14 @@ typedef intptr_t ssize_t;
 #define SHUT_WR SD_SEND
 #endif
 
-inline int closeSocketCrossPlatform(int s) { return closesocket(s); }
+#define CLOSE_SOCKET(s) closesocket(s)
 #else
 #include <unistd.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
 
-inline int closeSocketCrossPlatform(int s) { return close(s); }
+#define CLOSE_SOCKET(s) close(s)
 #endif
 
 #include <iostream>
@@ -40,13 +40,18 @@ inline int closeSocketCrossPlatform(int s) { return close(s); }
 #include <cstdio>
 #include <cstdlib>
 #include <ctime>
+#include <vector>
 
 using namespace std;
 
+
+// Server Constants
 const int32_t MAX_VARS_PER_FRAME = 16;
 const int32_t MAX_STACK_DEPTH = 64;
 const int32_t IO_BUFFER_SIZE = 64 * 1024;
 
+
+// Server & LB & Client Structs
 struct FuncEntry
 {
     string funcName;
@@ -108,6 +113,104 @@ struct ClientInfo
     string address;
     int port;
     time_t arrivedAt;
+};
+
+
+
+// Streaming CRC-32 & TrailerChecker
+const uint8_t STATUS_OK = 0;
+const uint8_t STATUS_ERR = 1;
+
+inline uint32_t crc32Update(uint32_t crc, const char* buf, size_t len)
+{
+    const uint8_t* p = (const uint8_t*)buf;
+    for (size_t i = 0; i < len; i++)
+    {
+        crc ^= p[i];
+        for (int bit = 0; bit < 8; bit++)
+        {
+            if (crc & 1)
+                crc = (crc >> 1) ^ 0xEDB88320U;
+            else
+                crc >>= 1;
+        }
+    }
+    return crc;
+}
+
+inline uint32_t crc32Init()
+{
+    return 0xFFFFFFFFU;
+}
+
+inline uint32_t crc32Final(uint32_t crc)
+{
+    return ~crc;
+}
+
+struct TrailerChecker
+{
+    uint32_t crcState;
+    uint8_t tail[4];
+    size_t tailLen;
+    uint64_t totalPopped;
+
+    TrailerChecker()
+    {
+        reset();
+    }
+
+    void reset()
+    {
+        crcState = crc32Init();
+        tailLen = 0;
+        totalPopped = 0;
+    }
+
+    void feed(const char* data, size_t len, string& outBytes)
+    {
+        outBytes.clear();
+        if (len == 0)
+            return;
+
+        for (size_t i = 0; i < len; i++)
+        {
+            uint8_t b = (uint8_t)data[i];
+            if (tailLen < 4)
+            {
+                tail[tailLen++] = b;
+            }
+            else
+            {
+                char confirmed = (char)tail[0];
+                crcState = crc32Update(crcState, &confirmed, 1);
+                outBytes.push_back(confirmed);
+                totalPopped++;
+
+                tail[0] = tail[1];
+                tail[1] = tail[2];
+                tail[2] = tail[3];
+                tail[3] = b;
+            }
+        }
+    }
+
+    bool verify() const
+    {
+        if (tailLen < 4 || totalPopped < 1)
+            return false;
+
+        uint32_t expectedCrc = 0;
+        memcpy(&expectedCrc, tail, sizeof(uint32_t));
+
+        uint32_t actualCrc = crc32Final(crcState);
+        return (expectedCrc == actualCrc);
+    }
+
+    const char* getTrailerBytes() const
+    {
+        return (const char*)tail;
+    }
 };
 
 #endif // HELPER_H
